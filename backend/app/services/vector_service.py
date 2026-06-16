@@ -63,6 +63,19 @@ def init_collection(client: QdrantClient):
             print(f"Vector collection '{collection_name}' created.")
         else:
             print(f"Vector collection '{collection_name}' already exists.")
+            
+        # Ensure payload index for document_id exists (required by strict index settings in Qdrant)
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="document_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+                wait=True
+            )
+            print(f"Payload index for 'document_id' verified/created.")
+        except Exception as idx_err:
+            print(f"Failed to ensure payload index for document_id: {idx_err}")
+            
     except Exception as e:
         print(f"Failed to initialize Qdrant collection: {e}")
         raise e
