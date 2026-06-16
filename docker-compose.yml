@@ -41,8 +41,8 @@ services:
     container_name: nexus-qdrant
     restart: always
     ports:
-      - "6334:6333"
-      - "6335:6334"
+      - "6345:6333"
+      - "6346:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:

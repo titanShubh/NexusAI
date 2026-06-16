@@ -28,6 +28,7 @@ passlib[bcrypt]>=1.7.4
 pymupdf>=1.24.0
 plotly>=5.22.0
 pandas>=2.2.0
+kaleido>=0.2.1b1
 
 # Reranking Client
 cohere>=5.5.0
