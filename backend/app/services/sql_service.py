@@ -46,7 +46,7 @@ async def get_db_schema(db: AsyncSession) -> str:
         try:
             sample_result = await db.execute(sample_query)
             sample_rows = sample_result.fetchall()
-            keys = sample_result.keys()
+            keys = list(sample_result.keys())
             if sample_rows:
                 schema_info.append("Sample Rows:")
                 for row in sample_rows:
@@ -131,7 +131,7 @@ async def execute_sql(sql: str, db: AsyncSession) -> list[dict[str, Any]]:
     # Execute query
     result = await db.execute(text(sql))
     rows = result.fetchall()
-    keys = result.keys()
+    keys = list(result.keys())
     
     formatted_results = []
     for row in rows:
