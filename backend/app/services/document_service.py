@@ -86,7 +86,7 @@ async def process_document(document_id: UUID, file_path: str, db: AsyncSession) 
             has_tables = len(page.find_tables().tables) > 0
             is_scanned = len(raw_text.strip()) < 150
             
-            if has_tables or is_scanned:
+            if False:
                 # Render page to PNG bytes
                 pix = page.get_pixmap(dpi=150)
                 img_bytes = pix.tobytes("png")
