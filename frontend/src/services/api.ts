@@ -158,6 +158,28 @@ export const chat = {
         }
         
         let buffer = "";
+
+        const parseLine = (line: string) => {
+          if (!line.trim()) return;
+          const eventMatch = line.match(/^event:\s*(.*)$/m);
+          const dataMatch = line.match(/^data:\s*(.*)$/m);
+          
+          if (dataMatch) {
+            const eventType = eventMatch ? eventMatch[1].trim() : "message";
+            try {
+              const eventData = JSON.parse(dataMatch[1].trim());
+              if (eventType === "step") {
+                onStep(eventData);
+              } else if (eventType === "final") {
+                onFinal(eventData);
+              } else if (eventType === "error") {
+                onError(eventData);
+              }
+            } catch (e) {
+              console.error("Failed to parse SSE event data:", e);
+            }
+          }
+        };
         
         while (true) {
           const { done, value } = await reader.read();
@@ -170,28 +192,13 @@ export const chat = {
           buffer = lines.pop() || "";
           
           for (const line of lines) {
-            if (!line.trim()) continue;
-            
-            // SSE line format: "event: name\ndata: jsonString"
-            const eventMatch = line.match(/^event:\s*(.*)$/m);
-            const dataMatch = line.match(/^data:\s*(.*)$/m);
-            
-            if (dataMatch) {
-              const eventType = eventMatch ? eventMatch[1].trim() : "message";
-              try {
-                const eventData = JSON.parse(dataMatch[1].trim());
-                if (eventType === "step") {
-                  onStep(eventData);
-                } else if (eventType === "final") {
-                  onFinal(eventData);
-                } else if (eventType === "error") {
-                  onError(eventData);
-                }
-              } catch (e) {
-                console.error("Failed to parse SSE event data:", e);
-              }
-            }
+            parseLine(line);
           }
+        }
+
+        // Process any remaining content in the buffer after stream closes
+        if (buffer.trim()) {
+          parseLine(buffer);
         }
       })
       .catch((err) => {
