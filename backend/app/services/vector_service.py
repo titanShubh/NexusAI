@@ -4,6 +4,7 @@ from typing import Any, Optional
 from uuid import UUID
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.config import get_settings
 
@@ -11,9 +12,37 @@ settings = get_settings()
 
 
 def get_qdrant_client() -> QdrantClient:
+    """Get initialized Qdrant client, supporting local and cloud configurations."""
+    host = settings.qdrant_host
+    api_key = settings.qdrant_api_key or None
+    
+    # If host starts with http:// or https://, use url parameter
+    if host.startswith(("http://", "https://")):
+        return QdrantClient(
+            url=host,
+            api_key=api_key
+        )
+    
+    # If API key is set and host looks like a domain or is "qdrant"
+    if api_key and ("." in host or host == "qdrant"):
+        url = host
+        if not url.startswith("https://"):
+            url = f"https://{url}"
+        
+        if settings.qdrant_port:
+            if not url.endswith(f":{settings.qdrant_port}"):
+                url = f"{url}:{settings.qdrant_port}"
+                
+        return QdrantClient(
+            url=url,
+            api_key=api_key
+        )
+        
+    # Default local fallback
     return QdrantClient(
-        url=f"https://{settings.qdrant_host}",
-        api_key=settings.qdrant_api_key,
+        host=host,
+        port=settings.qdrant_port,
+        api_key=api_key
     )
 
 
@@ -54,6 +83,8 @@ def upsert_document_chunks(
     - chunk_type (str)
     - metadata (dict)
     """
+    # Ensure collection exists before upserting
+    init_collection(client)
     points = []
     for chunk in chunks:
         points.append(
@@ -80,19 +111,25 @@ def upsert_document_chunks(
 
 def delete_document_vectors(client: QdrantClient, document_id: UUID) -> None:
     """Delete all vectors matching document_id."""
-    client.delete(
-        collection_name="nexus_chunks",
-        points_selector=models.FilterSelector(
-            filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="document_id",
-                        match=models.MatchValue(value=str(document_id))
-                    )
-                ]
+    try:
+        client.delete(
+            collection_name="nexus_chunks",
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=str(document_id))
+                        )
+                    ]
+                )
             )
         )
-    )
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+            print(f"Collection 'nexus_chunks' does not exist during deletion of document {document_id}. Skipping.")
+        else:
+            raise e
 
 
 def search_vectors(
@@ -116,14 +153,20 @@ def search_vectors(
             ]
         )
 
-    response = client.query_points(
-        collection_name="nexus_chunks",
-        query=query_vector,
-        limit=limit,
-        query_filter=filter_cond,
-        with_payload=True
-    )
-    results = response.points
+    try:
+        response = client.query_points(
+            collection_name="nexus_chunks",
+            query=query_vector,
+            limit=limit,
+            query_filter=filter_cond,
+            with_payload=True
+        )
+        results = response.points
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+            print("Collection 'nexus_chunks' does not exist during search. Returning empty list.")
+            return []
+        raise e
 
     hits = []
     for hit in results:

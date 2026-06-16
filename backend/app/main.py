@@ -28,9 +28,8 @@ async def lifespan(app: FastAPI):
 
     # Startup: Initialize Qdrant collection
     try:
-        qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
-        # We will import the actual init function once vector service is set up
-        from app.services.vector_service import init_collection
+        from app.services.vector_service import get_qdrant_client, init_collection
+        qdrant = get_qdrant_client()
         init_collection(qdrant)
         print("Qdrant collections initialized successfully.")
     except Exception as e:
