@@ -6,6 +6,7 @@ import json
 from typing import Any, Optional
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from openai import AsyncOpenAI
 
 from app.config import get_settings
@@ -127,4 +128,96 @@ def generate_chart_base64(
         
     except Exception as e:
         print(f"Failed to generate base64 chart: {e}")
+        return None
+
+
+async def generate_dynamic_chart_base64(
+    query: str,
+    results: list[dict[str, Any]]
+) -> Optional[str]:
+    """
+    Use GPT-4o to write custom Plotly visualization code based on a query and data,
+    execute it dynamically, and render the resulting figure to base64 PNG.
+    """
+    if not results:
+        return None
+        
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    
+    # 1. Preview data for the LLM
+    columns_info = {k: type(v).__name__ for k, v in results[0].items()}
+    preview_data = results[:5]
+    
+    system_prompt = (
+        "You are an expert Python data visualization assistant for an Enterprise AI Platform.\n"
+        "Your task is to write clean, executable Python code to generate a Plotly figure ('fig') based on a user's query and a pandas DataFrame 'df'.\n\n"
+        "Rules:\n"
+        "1. The DataFrame 'df' is already loaded and available in the execution environment.\n"
+        "2. Do NOT import pandas or load data from files. Use the existing 'df' variable.\n"
+        "3. You must import 'plotly.express as px' or 'plotly.graph_objects as go' if you use them.\n"
+        "4. Your code must assign the final Plotly Figure object to the variable 'fig'. For example: 'fig = px.bar(df, ...)' or 'fig = go.Figure(...)'.\n"
+        "5. Style the chart in dark mode. Set template='plotly_dark'. Use clean colors.\n"
+        "6. Make sure all titles, labels, and legends are clearly set and readable.\n"
+        "7. If the request cannot be visualized (e.g. the query doesn't ask for a chart, or the data has only 1 row/scalar value), return exactly: 'null'.\n"
+        "8. Return ONLY the raw executable Python code. No markdown code block wraps (e.g. no ```python), no explanations, no comments.\n"
+    )
+    
+    user_content = (
+        f"Business Query: {query}\n"
+        f"DataFrame Columns: {json.dumps(columns_info)}\n"
+        f"DataFrame Preview (First 5 rows):\n{json.dumps(preview_data, indent=2)}"
+    )
+    
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.0
+        )
+        code = (response.choices[0].message.content or "").strip()
+        
+        # Clean markdown code block if present
+        if code.startswith("```"):
+            code = code.replace("```python", "").replace("```json", "").replace("```", "").strip()
+            
+        if code == "null" or not code:
+            print("Visualizer LLM returned null or empty code.")
+            return None
+            
+        # 2. Execute the generated code
+        df = pd.DataFrame(results)
+        
+        local_vars = {
+            "df": df,
+            "px": px,
+            "go": go,
+            "fig": None
+        }
+        
+        # We run the code in a controlled context
+        exec(code, {}, local_vars)
+        fig = local_vars.get("fig")
+        
+        if fig is None:
+            print("Execution completed, but 'fig' variable was not assigned.")
+            return None
+            
+        # Apply standard dark-theme styling overrides to the figure
+        fig.update_layout(
+            paper_bgcolor="rgba(15, 23, 42, 0.8)",  # Tailwind slate-900 with opacity
+            plot_bgcolor="rgba(15, 23, 42, 0.5)",
+            font=dict(color="#f8fafc", family="Inter, sans-serif"),
+            title=dict(x=0.5, font=dict(size=16, color="#f8fafc"))
+        )
+        
+        # Render to static PNG using Kaleido
+        img_bytes = fig.to_image(format="png", width=800, height=450, engine="kaleido")
+        base64_str = base64.b64encode(img_bytes).decode("utf-8")
+        return f"data:image/png;base64,{base64_str}"
+        
+    except Exception as e:
+        print(f"Failed to generate dynamic chart: {e}")
         return None

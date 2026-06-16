@@ -4,13 +4,14 @@ import time
 from typing import Any
 
 from app.agents.state import NexusState
-from app.services.chart_service import determine_chart_config, generate_chart_base64
+from app.services.chart_service import generate_dynamic_chart_base64
 
 
 async def analytics_node(state: NexusState) -> dict[str, Any]:
     """
     Analytics node: evaluates if database query results can be visualized,
-    selects chart configuration, and generates Plotly base64 PNG.
+    generates a custom Plotly chart dynamically using python code execution,
+    and returns a base64 PNG string.
     """
     start_time = time.time()
     
@@ -32,20 +33,13 @@ async def analytics_node(state: NexusState) -> dict[str, Any]:
     query = state["original_query"]
     
     chart_base64 = None
-    config = None
     status = "success"
     
     try:
-        # 2. Determine chart configuration via GPT-4o
-        config = await determine_chart_config(query, results)
-        
-        # 3. Generate chart image base64 if config is suitable
-        if config:
-            chart_base64 = generate_chart_base64(results, config)
-            if not chart_base64:
-                status = "failed"
-        else:
-            status = "skipped"  # Not suitable for chart
+        # 2. Generate Plotly chart image base64 dynamically via LLM code execution
+        chart_base64 = await generate_dynamic_chart_base64(query, results)
+        if not chart_base64:
+            status = "skipped"  # Not suitable for chart or skipped
             
     except Exception as e:
         status = "failed"
@@ -59,7 +53,6 @@ async def analytics_node(state: NexusState) -> dict[str, Any]:
         "latency_ms": latency,
         "tokens_used": 0,
         "metadata": {
-            "chart_config": config,
             "chart_generated": chart_base64 is not None
         }
     }
