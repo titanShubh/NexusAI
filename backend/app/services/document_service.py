@@ -73,36 +73,58 @@ async def process_document(document_id: UUID, file_path: str, db: AsyncSession) 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found at {file_path}")
 
-        # 3. Extract text page by page
-        pdf_doc = fitz.open(file_path)
+        # 3. Extract text page by page / row by row
         extracted_pages = []
-
-        for page_idx in range(len(pdf_doc)):
-            page = pdf_doc[page_idx]
-            page_num = page_idx + 1
-            raw_text = page.get_text()
-            
-            # Check if vision fallback is needed (has tables or is scanned/image-based)
-            has_tables = len(page.find_tables().tables) > 0
-            is_scanned = len(raw_text.strip()) < 150
-            
-            if has_tables or is_scanned:
-                # Render page to PNG bytes
-                pix = page.get_pixmap(dpi=150)
-                img_bytes = pix.tobytes("png")
-                page_text = await extract_page_via_vision(img_bytes)
-                chunk_type = "table" if has_tables else "image"
-            else:
-                page_text = raw_text
-                chunk_type = "text"
-            
-            extracted_pages.append({
-                "page_number": page_num,
-                "content": page_text,
-                "chunk_type": chunk_type
-            })
         
-        pdf_doc.close()
+        if doc.file_type == "csv":
+            import csv
+            with open(file_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+                
+            formatted_text_parts = []
+            for idx, row in enumerate(rows):
+                row_desc = f"Row {idx+1}: " + ", ".join(f"{k}: {v}" for k, v in row.items() if v is not None)
+                formatted_text_parts.append(row_desc)
+                
+            # Pack 20 rows per chunk page
+            rows_per_page = 20
+            for start_idx in range(0, len(formatted_text_parts), rows_per_page):
+                page_num = (start_idx // rows_per_page) + 1
+                page_text = "\n".join(formatted_text_parts[start_idx:start_idx+rows_per_page])
+                extracted_pages.append({
+                    "page_number": page_num,
+                    "content": page_text,
+                    "chunk_type": "csv_table"
+                })
+        else:
+            pdf_doc = fitz.open(file_path)
+            for page_idx in range(len(pdf_doc)):
+                page = pdf_doc[page_idx]
+                page_num = page_idx + 1
+                raw_text = page.get_text()
+                
+                # Check if vision fallback is needed (has tables or is scanned/image-based)
+                has_tables = len(page.find_tables().tables) > 0
+                is_scanned = len(raw_text.strip()) < 150
+                
+                if has_tables or is_scanned:
+                    # Render page to PNG bytes
+                    pix = page.get_pixmap(dpi=150)
+                    img_bytes = pix.tobytes("png")
+                    page_text = await extract_page_via_vision(img_bytes)
+                    chunk_type = "table" if has_tables else "image"
+                else:
+                    page_text = raw_text
+                    chunk_type = "text"
+                
+                extracted_pages.append({
+                    "page_number": page_num,
+                    "content": page_text,
+                    "chunk_type": chunk_type
+                })
+            
+            pdf_doc.close()
 
         # 4. Chunk the content
         text_splitter = RecursiveCharacterTextSplitter(

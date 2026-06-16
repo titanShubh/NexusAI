@@ -36,17 +36,17 @@ async def upload_document(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Upload a PDF document. Schedules chunking, embedding, and indexing in the background.
+    Upload a PDF or CSV document. Schedules chunking, embedding, and indexing in the background.
     """
-    if not file.filename.lower().endswith(".pdf"):
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in (".pdf", ".csv"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF files are supported at this time."
+            detail="Only PDF and CSV files are supported at this time."
         )
 
     # Create document record
     doc_id = uuid4()
-    file_ext = os.path.splitext(file.filename)[1]
     safe_filename = f"{doc_id}{file_ext}"
     file_path = os.path.join(UPLOAD_DIR, safe_filename)
 
@@ -67,7 +67,7 @@ async def upload_document(
         id=doc_id,
         user_id=current_user.id,
         filename=file.filename,
-        file_type="pdf",
+        file_type=file_ext[1:],  # "pdf" or "csv"
         file_size=file_size,
         upload_status="pending",
         chunk_count=0

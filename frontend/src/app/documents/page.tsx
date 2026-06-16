@@ -67,8 +67,9 @@ export default function Documents() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setUploadError("Only PDF files are supported.");
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith(".pdf") && !ext.endsWith(".csv")) {
+      setUploadError("Only PDF and CSV files are supported.");
       return;
     }
 
@@ -134,7 +135,7 @@ export default function Documents() {
                 <label className="border-2 border-dashed border-slate-700 hover:border-blue-500/50 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors duration-200 bg-slate-900/30">
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.csv"
                     className="hidden"
                     onChange={handleFileUpload}
                     disabled={uploading}
