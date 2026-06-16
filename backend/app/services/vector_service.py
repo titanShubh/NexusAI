@@ -31,6 +31,11 @@ def init_collection(client: QdrantClient):
                     distance=models.Distance.COSINE
                 )
             )
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="document_id",
+                field_schema=models.PayloadSchemaType.KEYWORD
+            )
             print(f"Vector collection '{collection_name}' created.")
         else:
             print(f"Vector collection '{collection_name}' already exists.")
