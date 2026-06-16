@@ -62,8 +62,28 @@ workflow.add_conditional_edges(
     }
 )
 
+def route_from_rag(state: NexusState) -> str:
+    """
+    Conditional routing function for the RAG node.
+    If the user wants a chart/graph, route to the analytics node.
+    Otherwise, go directly to the evaluation node.
+    """
+    query_lower = state["original_query"].lower()
+    has_chart_intent = any(w in query_lower for w in ("plot", "chart", "graph", "visualize", "histogram"))
+    if has_chart_intent:
+        return "analytics"
+    return "eval"
+
+
 # Branch transitions merging at the eval node
-workflow.add_edge("rag", "eval")
+workflow.add_conditional_edges(
+    "rag",
+    route_from_rag,
+    {
+        "analytics": "analytics",
+        "eval": "eval"
+    }
+)
 workflow.add_edge("sql", "analytics")
 workflow.add_edge("analytics", "eval")
 

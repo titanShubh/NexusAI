@@ -1,5 +1,6 @@
 """RAG Search agent node for retrieval and synthesis."""
 
+import json
 import time
 from typing import Any
 from sqlalchemy import select
@@ -177,9 +178,49 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
         }
     }
     
+    # Extract structured data if the query asks for a chart/graph
+    query_lower = state["original_query"].lower()
+    has_chart_intent = any(w in query_lower for w in ("plot", "chart", "graph", "visualize", "histogram"))
+    
+    extracted_sql_results = []
+    if has_chart_intent:
+        try:
+            system_prompt = (
+                "You are a data extraction assistant.\n"
+                "The user wants to plot a chart based on the query and the text below.\n"
+                "Extract the tabular data (categories and numeric values) from the text that should be plotted.\n"
+                "Your response MUST be a JSON list of objects, where each object represents a data row to be plotted.\n"
+                "For example, if plotting questions vs topic: [{\"topic\": \"recursion\", \"count\": 2}, ...]\n"
+                "Return ONLY the raw JSON list, no markdown formatting, no explanations, no wrappers."
+            )
+            
+            user_content = (
+                f"Query: {state['original_query']}\n\n"
+                f"Text Context:\n{rag_answer}"
+            )
+            
+            resp = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=0.0
+            )
+            content = (resp.choices[0].message.content or "").strip()
+            if content.startswith("```"):
+                content = content.replace("```json", "").replace("```", "").strip()
+            
+            extracted_sql_results = json.loads(content)
+            if not isinstance(extracted_sql_results, list):
+                extracted_sql_results = []
+        except Exception as e:
+            print(f"Failed to extract structured data for plotting from RAG: {e}")
+
     # We store synthesized answer in state rag_results as a metadata field or standard state item
     return {
         "rag_results": reranked_hits,
+        "sql_results": extracted_sql_results,  # Populate for the analytics agent
         # We append a message representing RAG's output so response gen can read it
         "messages": state.get("messages", []) + [{"role": "assistant", "content": rag_answer, "name": "RAGAgent"}],
         "agent_trace": [trace]
