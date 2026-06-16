@@ -58,7 +58,7 @@ async def response_node(state: NexusState) -> dict[str, Any]:
         "confidence_score": confidence_score,
         "rag_agent_response": rag_content if route in ("rag", "hybrid") else "N/A",
         "sql_query": sql_query if route in ("sql", "hybrid", "analytics") else "N/A",
-        "sql_results": sql_results[:50] if route in ("sql", "hybrid", "analytics") else [],  # limit rows passed to compiler
+        "sql_results": sql_results[:50] if (route in ("sql", "hybrid", "analytics") or has_chart) else [],  # limit rows passed to compiler
         "has_chart_visualization": has_chart
     }
     
