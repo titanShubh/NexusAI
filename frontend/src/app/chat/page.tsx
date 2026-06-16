@@ -41,6 +41,107 @@ interface Message {
   agent_trace?: any[];
 }
 
+function parseMarkdownToHTML(text: string): string {
+  if (!text) return "";
+
+  // 1. Escape HTML tags to prevent XSS
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // 2. Parse Headers (###, ##, #)
+  html = html.replace(/^### (.*?)$/gm, '<h3 class="text-white font-bold text-base mt-4 mb-2">$1</h3>');
+  html = html.replace(/^## (.*?)$/gm, '<h2 class="text-white font-bold text-lg mt-5 mb-2.5">$1</h2>');
+  html = html.replace(/^# (.*?)$/gm, '<h1 class="text-white font-bold text-xl mt-6 mb-3">$1</h1>');
+
+  // 3. Parse Bold & Italics
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-white">$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em class="italic text-slate-300">$1</em>');
+
+  // 4. Parse inline code
+  html = html.replace(/`(.*?)`/g, '<code class="bg-slate-900 border border-slate-800 text-xs px-1.5 py-0.5 rounded text-blue-400 font-mono">$1</code>');
+
+  // 5. Lists (Unordered and Ordered)
+  const lines = html.split('\n');
+  let inList = false;
+  let inOrderedList = false;
+  
+  const processedLines = lines.map(line => {
+    const trimmed = line.trim();
+    
+    // Check if it's an unordered list item (- or *)
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const content = trimmed.substring(2);
+      let prefix = '';
+      if (!inList) {
+        let closeOrdered = '';
+        if (inOrderedList) {
+          closeOrdered = '</ol>';
+          inOrderedList = false;
+        }
+        prefix = closeOrdered + '<ul class="list-disc list-inside space-y-1 my-2 pl-2">';
+        inList = true;
+      }
+      return `${prefix}<li>${content}</li>`;
+    }
+    
+    // Check if it's an ordered list item (1. 2. etc)
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.*)$/);
+    if (orderedMatch) {
+      const content = orderedMatch[1];
+      let prefix = '';
+      if (!inOrderedList) {
+        let closeUnordered = '';
+        if (inList) {
+          closeUnordered = '</ul>';
+          inList = false;
+        }
+        prefix = closeUnordered + '<ol class="list-decimal list-inside space-y-1 my-2 pl-2">';
+        inOrderedList = true;
+      }
+      return `${prefix}<li>${content}</li>`;
+    }
+
+    // Closing tags if list ends
+    let prefix = '';
+    if (inList) {
+      prefix += '</ul>';
+      inList = false;
+    }
+    if (inOrderedList) {
+      prefix += '</ol>';
+      inOrderedList = false;
+    }
+    
+    return prefix + line;
+  });
+
+  if (inList) processedLines.push('</ul>');
+  if (inOrderedList) processedLines.push('</ol>');
+
+  html = processedLines.join('\n');
+
+  // 6. Wrap non-header/non-list elements in paragraphs
+  html = html.split('\n\n').map(p => {
+    const trimmed = p.trim();
+    if (!trimmed) return p;
+    if (
+      trimmed.startsWith('<h') || 
+      trimmed.startsWith('<ul') || 
+      trimmed.startsWith('<ol') || 
+      trimmed.startsWith('</ul') || 
+      trimmed.startsWith('</ol') ||
+      trimmed.startsWith('<li>')
+    ) {
+      return p;
+    }
+    return `<p class="mb-3 leading-relaxed">${p}</p>`;
+  }).join('\n');
+
+  return html;
+}
+
 export default function Chat() {
   const router = useRouter();
   const [conversations, setConversations] = useState<any[]>([]);
@@ -325,9 +426,16 @@ export default function Chat() {
                     )}
 
                     {/* Content */}
-                    <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                      {msg.content}
-                    </div>
+                    {isUser ? (
+                      <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                        {msg.content}
+                      </div>
+                    ) : (
+                      <div 
+                        className="text-sm leading-relaxed markdown-content space-y-1"
+                        dangerouslySetInnerHTML={{ __html: parseMarkdownToHTML(msg.content) }}
+                      />
+                    )}
 
                     {/* Cited RAG Sources */}
                     {!isUser && msg.sources_json && msg.sources_json.length > 0 && (
