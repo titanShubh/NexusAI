@@ -42,13 +42,15 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
     user_id = state["user_id"]
     decomposed_queries = state.get("decomposed_queries") or [state["original_query"]]
     
-    # 2. Get user document IDs for filtering
+    # 2. Get user documents for filtering and type detection
     async with async_session_factory() as db:
         result = await db.execute(
-            select(Document.id)
+            select(Document)
             .where(Document.user_id == user_id, Document.upload_status == "completed")
         )
-        document_ids = [row[0] for row in result.fetchall()]
+        user_docs = result.scalars().all()
+        document_ids = [d.id for d in user_docs]
+        has_csv = any(d.file_type == "csv" for d in user_docs)
         
     if not document_ids:
         trace = {
@@ -70,6 +72,8 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
     )
     
     all_hits = []
+    vector_limit = 20 if has_csv else 8
+    top_n = 15 if has_csv else 5
     
     # 3. Retrieve chunks for all decomposed queries
     for sub_query in decomposed_queries:
@@ -78,7 +82,7 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
             hits = search_vectors(
                 client=qdrant,
                 query_vector=query_vector,
-                limit=8,
+                limit=vector_limit,
                 document_ids=document_ids
             )
             all_hits.extend(hits)
@@ -115,7 +119,7 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
             rerank_resp = co.rerank(
                 query=state["original_query"],
                 documents=doc_contents,
-                top_n=min(5, len(deduped_hits)),
+                top_n=min(top_n, len(deduped_hits)),
                 model="rerank-english-v3.0"
             )
             reranked_hits = []
@@ -125,13 +129,13 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
                 reranked_hits.append(hit)
         except Exception as e:
             print(f"Cohere rerank failed (falling back to vector score): {e}")
-            # Fallback to top 5 vector results
+            # Fallback to top vector results
             deduped_hits.sort(key=lambda x: x["score"], reverse=True)
-            reranked_hits = deduped_hits[:5]
+            reranked_hits = deduped_hits[:top_n]
     else:
-        # Sort and take top 5
+        # Sort and take top
         deduped_hits.sort(key=lambda x: x["score"], reverse=True)
-        reranked_hits = deduped_hits[:5]
+        reranked_hits = deduped_hits[:top_n]
         
     # 5. Synthesize answer using GPT-4o
     client = AsyncOpenAI(api_key=settings.openai_api_key)

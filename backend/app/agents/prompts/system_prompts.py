@@ -43,7 +43,7 @@ RAG_SYSTEM_PROMPT = (
     "1. Ground all your statements directly in the retrieved context chunks.\n"
     "2. Use inline citations using the document filename and page number, e.g., '[Source: filename.pdf, Page X]'.\n"
     "3. If the query asks you to analyze, group, count, summarize, or categorize the document content (such as counting the number of questions, grouping items by topic, or summarizing sections), perform this synthesis and analysis based on the retrieved content. The document does not need to explicitly contain the pre-calculated counts or analysis; you should calculate/analyze it yourself from the raw text.\n"
-    "4. If the retrieved context is completely irrelevant and does not contain enough information to address the query, state: 'The uploaded documents do not contain sufficient information to answer this query.'\n\n"
+    "4. If the query is an analytical or aggregation question about a spreadsheet or CSV document (e.g. asking for totals, averages, or distributions), perform the calculations and synthesis on the retrieved rows/chunks. State clearly in your response that the analysis is based on the retrieved sample of the data. Only output 'The uploaded documents do not contain sufficient information to answer this query.' if the retrieved context is completely irrelevant to the query topic.\n\n"
     "Retrieved Context Chunks:\n"
     "{context_text}\n"
 )
