@@ -64,6 +64,109 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
             "rag_results": [],
             "agent_trace": [trace]
         }
+
+    import os
+    import pandas as pd
+    import base64
+    import plotly.express as px
+    import plotly.graph_objects as go
+
+    # Python Pandas CSV Agent for analytical spreadsheet queries
+    csv_doc = next((d for d in user_docs if d.file_type == "csv"), None)
+    if csv_doc:
+        csv_file_path = os.path.join("uploads", f"{csv_doc.id}.csv")
+        if os.path.exists(csv_file_path):
+            try:
+                # Load the CSV
+                try:
+                    df = pd.read_csv(csv_file_path, encoding="utf-8")
+                except UnicodeDecodeError:
+                    df = pd.read_csv(csv_file_path, encoding="latin-1")
+                
+                # Dynamic analysis using GPT-4o
+                client = AsyncOpenAI(api_key=settings.openai_api_key)
+                columns_info = {k: str(v) for k, v in df.dtypes.items()}
+                preview_data = df.head(5).to_dict(orient="records")
+                
+                system_prompt = (
+                    "You are an expert Python Data Scientist and Data Visualization assistant for NexusAI.\n"
+                    "You are given a pandas DataFrame 'df' (representing the uploaded CSV file) and a user's query.\n"
+                    "Your task is to write clean, executable Python code to answer the user's business query using the DataFrame.\n\n"
+                    "Rules:\n"
+                    "1. The DataFrame 'df' is already loaded and available in the execution environment. Do NOT load it from a file or overwrite it.\n"
+                    "2. Perform all necessary groupings, calculations, summaries, or statistical analysis requested.\n"
+                    "3. Format the final answer as a markdown string and assign it to the variable 'text_answer'. Make it detailed, clear, and professional. E.g. text_answer = '### Analysis Results\\n...'\n"
+                    "4. If the user query asks for or implies a visualization/chart/graph (e.g. contains words like plot, chart, graph, curve, distribution, histogram), write Plotly code to build a Figure object and assign it to the variable 'fig'. Style the figure in dark mode with template='plotly_dark' and transparent paper/plot backgrounds. E.g. fig = px.bar(df, ...)\n"
+                    "5. Return ONLY the raw executable Python code. Do NOT wrap in markdown code blocks (no ```python), no explanations, no wrappers. Just raw Python code.\n"
+                    "6. Import any libraries you need (e.g. 'import plotly.express as px', 'import numpy as np'). Do not import pandas, df is already loaded."
+                )
+                
+                user_content = (
+                    f"User Query: {state['original_query']}\n"
+                    f"DataFrame Columns & Types: {json.dumps(columns_info)}\n"
+                    f"DataFrame Preview (First 5 rows):\n{json.dumps(preview_data, indent=2)}"
+                )
+                
+                resp = await client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.0
+                )
+                code = (resp.choices[0].message.content or "").strip()
+                if code.startswith("```"):
+                    code = code.replace("```python", "").replace("```json", "").replace("```", "").strip()
+                
+                # Execute sandbox code
+                local_vars = {
+                    "df": df,
+                    "px": px,
+                    "go": go,
+                    "fig": None,
+                    "text_answer": None
+                }
+                
+                exec(code, {}, local_vars)
+                
+                rag_answer = local_vars.get("text_answer") or "Could not calculate a text answer."
+                fig = local_vars.get("fig")
+                
+                chart_base64 = None
+                if fig is not None:
+                    fig.update_layout(
+                        paper_bgcolor="rgba(15, 23, 42, 0.8)",
+                        plot_bgcolor="rgba(15, 23, 42, 0.5)",
+                        font=dict(color="#f8fafc", family="Inter, sans-serif"),
+                        title=dict(x=0.5, font=dict(size=16, color="#f8fafc"))
+                    )
+                    img_bytes = fig.to_image(format="png", width=800, height=450, engine="kaleido")
+                    base64_str = base64.b64encode(img_bytes).decode("utf-8")
+                    chart_base64 = f"data:image/png;base64,{base64_str}"
+                
+                latency = int((time.time() - start_time) * 1000)
+                trace = {
+                    "node_name": "RAGAgent",
+                    "status": "success",
+                    "latency_ms": latency,
+                    "tokens_used": resp.usage.total_tokens if resp.usage else 0,
+                    "metadata": {
+                        "mode": "python_csv_agent",
+                        "chart_generated": chart_base64 is not None
+                    }
+                }
+                
+                return {
+                    "rag_results": [{"content": f"CSV Dataset: {csv_doc.filename}", "page_number": 1, "chunk_type": "csv_table", "metadata": {"source": csv_doc.filename}}],
+                    "sql_results": [],
+                    "chart_base64": chart_base64,
+                    "messages": state.get("messages", []) + [{"role": "assistant", "content": rag_answer, "name": "RAGAgent"}],
+                    "agent_trace": [trace]
+                }
+                
+            except Exception as pandas_err:
+                print(f"Pandas CSV Data Agent failed: {pandas_err}. Falling back to standard RAG...")
         
     qdrant = get_qdrant_client()
     embeddings_model = OpenAIEmbeddings(
