@@ -1,7 +1,7 @@
 """Evaluation and confidence scoring service using GPT-4o as a judge."""
 
 import json
-from typing import Any
+from typing import Any, Optional
 from openai import AsyncOpenAI
 
 from app.config import get_settings
