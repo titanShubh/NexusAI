@@ -11,8 +11,10 @@ settings = get_settings()
 
 
 def get_qdrant_client() -> QdrantClient:
-    """Get initialized Qdrant client."""
-    return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+    return QdrantClient(
+        url=f"https://{settings.qdrant_host}",
+        api_key=settings.qdrant_api_key,
+    )
 
 
 def init_collection(client: QdrantClient):
