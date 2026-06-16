@@ -21,11 +21,24 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 async def run_document_processing(document_id: UUID, file_path: str):
     """Wrapper function to handle background session creation for document parsing."""
-    async with async_session_factory() as session:
-        try:
+    try:
+        async with async_session_factory() as session:
             await process_document(document_id, file_path, session)
-        except Exception as e:
-            print(f"Background task failed for document {document_id}: {e}")
+    except Exception as e:
+        print(f"Background task failed for document {document_id}: {e}")
+        # Clean fallback: use a fresh database session to mark the document as failed
+        try:
+            async with async_session_factory() as fail_session:
+                result = await fail_session.execute(
+                    select(Document).where(Document.id == document_id)
+                )
+                doc = result.scalar_one_or_none()
+                if doc:
+                    doc.upload_status = "failed"
+                    await fail_session.commit()
+                    print(f"Set document {document_id} status to failed.")
+        except Exception as db_err:
+            print(f"Failed to set document status to failed: {db_err}")
 
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_202_ACCEPTED)

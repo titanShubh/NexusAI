@@ -78,13 +78,18 @@ async def process_document(document_id: UUID, file_path: str, db: AsyncSession) 
         
         if doc.file_type == "csv":
             import csv
-            with open(file_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
+            try:
+                with open(file_path, "r", encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
+            except UnicodeDecodeError:
+                with open(file_path, "r", encoding="latin-1") as f:
+                    reader = csv.DictReader(f)
+                    rows = list(reader)
                 
             formatted_text_parts = []
             for idx, row in enumerate(rows):
-                row_desc = f"Row {idx+1}: " + ", ".join(f"{k}: {v}" for k, v in row.items() if v is not None)
+                row_desc = f"Row {idx+1}: " + ", ".join(f"{k}: {v}" for k, v in row.items() if k is not None and v is not None)
                 formatted_text_parts.append(row_desc)
                 
             # Pack 20 rows per chunk page
@@ -132,33 +137,50 @@ async def process_document(document_id: UUID, file_path: str, db: AsyncSession) 
             chunk_overlap=100
         )
         
+        raw_splits = []
+        for page_data in extracted_pages:
+            if doc.file_type == "csv":
+                raw_splits.append({
+                    "content": page_data["content"],
+                    "page_number": page_data["page_number"],
+                    "chunk_type": page_data["chunk_type"]
+                })
+            else:
+                splits = text_splitter.split_text(page_data["content"])
+                for split in splits:
+                    if not split.strip():
+                        continue
+                    raw_splits.append({
+                        "content": split,
+                        "page_number": page_data["page_number"],
+                        "chunk_type": page_data["chunk_type"]
+                    })
+        
         chunks_to_insert = []
         qdrant_chunks = []
-        chunk_idx = 0
         
-        embeddings_model = OpenAIEmbeddings(
-            model="text-embedding-3-small",
-            openai_api_key=settings.openai_api_key
-        )
-
-        for page_data in extracted_pages:
-            splits = text_splitter.split_text(page_data["content"])
-            for split in splits:
-                if not split.strip():
-                    continue
-                
+        if raw_splits:
+            embeddings_model = OpenAIEmbeddings(
+                model="text-embedding-3-small",
+                openai_api_key=settings.openai_api_key
+            )
+            
+            # Generate all embeddings in a single batch request
+            texts_to_embed = [item["content"] for item in raw_splits]
+            vectors = await embeddings_model.aembed_documents(texts_to_embed)
+            
+            for idx, item in enumerate(raw_splits):
                 chunk_id = uuid.uuid4()
-                # Generate embedding
-                vector = await embeddings_model.aembed_query(split)
+                vector = vectors[idx]
                 
                 # DB Chunk Object
                 db_chunk = DocumentChunk(
                     id=chunk_id,
                     document_id=document_id,
-                    chunk_index=chunk_idx,
-                    content=split,
-                    page_number=page_data["page_number"],
-                    chunk_type=page_data["chunk_type"],
+                    chunk_index=idx,
+                    content=item["content"],
+                    page_number=item["page_number"],
+                    chunk_type=item["chunk_type"],
                     metadata_json={"source": doc.filename}
                 )
                 chunks_to_insert.append(db_chunk)
@@ -168,13 +190,11 @@ async def process_document(document_id: UUID, file_path: str, db: AsyncSession) 
                     "id": chunk_id,
                     "vector": vector,
                     "document_id": document_id,
-                    "content": split,
-                    "page_number": page_data["page_number"],
-                    "chunk_type": page_data["chunk_type"],
+                    "content": item["content"],
+                    "page_number": item["page_number"],
+                    "chunk_type": item["chunk_type"],
                     "metadata": {"source": doc.filename}
                 })
-                
-                chunk_idx += 1
 
         # 5. Insert to DB
         db.add_all(chunks_to_insert)
