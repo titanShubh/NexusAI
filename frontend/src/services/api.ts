@@ -186,7 +186,7 @@ export const chat = {
           if (done) break;
           
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n\n");
+          const lines = buffer.split(/\r?\n\r?\n/);
           
           // Keep last incomplete line in buffer
           buffer = lines.pop() || "";

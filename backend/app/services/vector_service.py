@@ -114,13 +114,14 @@ def search_vectors(
             ]
         )
 
-    results = client.search(
+    response = client.query_points(
         collection_name="nexus_chunks",
-        query_vector=query_vector,
+        query=query_vector,
         limit=limit,
         query_filter=filter_cond,
         with_payload=True
     )
+    results = response.points
 
     hits = []
     for hit in results:
