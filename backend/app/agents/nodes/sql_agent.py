@@ -40,7 +40,7 @@ async def sql_node(state: NexusState) -> dict[str, Any]:
     async with async_session_factory() as db:
         try:
             # 2. Get database schema context
-            schema_context = await get_db_schema(db)
+            schema_context = await get_db_schema(db, query)
             
             # 3. Generate SQL from user query
             sql = await generate_sql(query, schema_context)

@@ -54,7 +54,7 @@ async def supervisor_node(state: NexusState) -> dict[str, Any]:
         doc_list_str = "\n".join([f"- {f}" for f in filenames]) if filenames else "No documents uploaded."
         
         # 2. Fetch schema context
-        schema_context = await get_db_schema(db)
+        schema_context = await get_db_schema(db, query)
         
     try:
         response = await client.chat.completions.create(

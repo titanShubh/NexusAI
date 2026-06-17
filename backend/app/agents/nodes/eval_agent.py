@@ -56,7 +56,7 @@ async def eval_node(state: NexusState) -> dict[str, Any]:
     schema_context = None
     if sql_query:
         async with async_session_factory() as db:
-            schema_context = await get_db_schema(db)
+            schema_context = await get_db_schema(db, query)
             
     # Check if RAGAgent ran in python_csv_agent mode
     is_csv_agent = False

@@ -71,3 +71,51 @@ def test_sql_validation_unsafe_queries():
         is_safe, reason = validate_sql(q)
         assert is_safe is False, f"Query passed validation but should be unsafe: {q}"
         assert len(reason) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_db_schema_filtering():
+    """Verify get_db_schema dynamically filters tables based on query keywords or synonyms."""
+    from app.services.sql_service import get_db_schema
+    from unittest.mock import AsyncMock, MagicMock
+    
+    mock_db = AsyncMock()
+    
+    mock_result = MagicMock()
+    mock_result.fetchall.return_value = [("customers",), ("sales",), ("employees",)]
+    
+    mock_cols_result = MagicMock()
+    mock_cols_result.fetchall.return_value = [("id", "integer", "NO"), ("name", "varchar", "YES")]
+    
+    mock_sample_result = MagicMock()
+    mock_sample_result.fetchall.return_value = []
+    mock_sample_result.keys.return_value = []
+    
+    def db_execute_side_effect(query_obj, params=None):
+        query_str = str(query_obj).upper()
+        if "COLUMNS" in query_str:
+            return mock_cols_result
+        elif "TABLE_NAME" in query_str:
+            return mock_result
+        else:
+            return mock_sample_result
+            
+    mock_db.execute.side_effect = db_execute_side_effect
+    
+    # 1. No query: all tables returned
+    schema = await get_db_schema(mock_db)
+    assert "Table: customers" in schema
+    assert "Table: sales" in schema
+    assert "Table: employees" in schema
+    
+    # 2. Query matches "employees" table synonym "salary"
+    schema_filtered = await get_db_schema(mock_db, query="Show me employee salaries")
+    assert "Table: employees" in schema_filtered
+    assert "Table: customers" not in schema_filtered
+    assert "Table: sales" not in schema_filtered
+    
+    # 3. Query matches "sales" table synonym "purchase"
+    schema_filtered_sales = await get_db_schema(mock_db, query="What are the latest purchase transactions?")
+    assert "Table: sales" in schema_filtered_sales
+    assert "Table: customers" not in schema_filtered_sales
+    assert "Table: employees" not in schema_filtered_sales

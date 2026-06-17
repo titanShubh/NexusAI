@@ -12,8 +12,8 @@ from app.config import get_settings
 settings = get_settings()
 
 
-async def get_db_schema(db: AsyncSession) -> str:
-    """Dynamically introspect database tables, columns, types, and fetch sample data."""
+async def get_db_schema(db: AsyncSession, query: str = None) -> str:
+    """Dynamically introspect database tables, columns, types, and fetch sample data, with dynamic semantic filtering."""
     schema_info = []
     
     # Query for all user tables in public schema
@@ -23,6 +23,42 @@ async def get_db_schema(db: AsyncSession) -> str:
     )
     result = await db.execute(tables_query)
     tables = [row[0] for row in result.fetchall()]
+    
+    # Dynamic table schema filtering based on the query (Runtime Prompt Optimization)
+    if query:
+        query_lower = query.lower()
+        matched_tables = []
+        
+        # Mapping of tables to common semantic synonyms
+        synonyms = {
+            "sales": ["sale", "transaction", "revenue", "purchase", "order", "sold", "payment", "spend", "deal", "invoice"],
+            "customers": ["customer", "client", "buyer", "user", "consumer", "shopper", "patron", "subscriber"],
+            "employees": ["employee", "staff", "manager", "worker", "salary", "hire", "recruits", "developer", "engineer", "salesperson", "rep"]
+        }
+        
+        for table in tables:
+            # Check for exact table name in query
+            if table in query_lower:
+                matched_tables.append(table)
+                continue
+                
+            # Check singular version of table name
+            table_sing = table[:-1] if table.endswith('s') else table
+            if table_sing in query_lower:
+                matched_tables.append(table)
+                continue
+                
+            # Check semantic synonyms
+            if table in synonyms:
+                for syn in synonyms[table]:
+                    if syn in query_lower:
+                        matched_tables.append(table)
+                        break
+        
+        # If we successfully matched any tables, filter the schema introspections.
+        # Otherwise, fall back to showing all schemas to prevent query failure.
+        if matched_tables:
+            tables = matched_tables
     
     for table in tables:
         # Get column details
