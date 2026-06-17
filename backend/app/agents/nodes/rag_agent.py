@@ -117,7 +117,11 @@ async def rag_node(state: NexusState) -> dict[str, Any]:
                 )
                 code = (resp.choices[0].message.content or "").strip()
                 if code.startswith("```"):
-                    code = code.replace("```python", "").replace("```json", "").replace("```", "").strip()
+                    import re
+                    code = re.sub(r"^```[a-zA-Z]*\n", "", code)
+                    code = re.sub(r"\n```$", "", code)
+                    code = re.sub(r"^```", "", code)
+                    code = re.sub(r"```$", "", code).strip()
                 
                 # Execute sandbox code
                 local_vars = {
