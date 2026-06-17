@@ -20,9 +20,46 @@ async def lifespan(app: FastAPI):
     try:
         from app.db.database import engine
         from app.db.models import Base
+        from sqlalchemy import text
+        import os
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("Database tables initialized successfully.")
+            
+            # Check if customers table exists
+            check_query = text(
+                "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'customers');"
+            )
+            result = await conn.execute(check_query)
+            exists = result.scalar()
+            
+            if not exists:
+                print("Seeding database with customers, employees, and sales tables...")
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                sql_path = os.path.join(base_dir, "db", "seed_data.sql")
+                if os.path.exists(sql_path):
+                    with open(sql_path, "r", encoding="utf-8") as f:
+                        sql_content = f.read()
+                    
+                    # Split statements by semicolon and execute them
+                    statements = []
+                    current_stmt = []
+                    for line in sql_content.splitlines():
+                        if line.strip().startswith("--") or not line.strip():
+                            continue
+                        current_stmt.append(line)
+                        if line.strip().endswith(";"):
+                            statements.append("\n".join(current_stmt))
+                            current_stmt = []
+                            
+                    for stmt in statements:
+                        if stmt.strip():
+                            await conn.execute(text(stmt))
+                    print("Database tables created and seeded successfully.")
+                else:
+                    print(f"Seed script not found at path: {sql_path}")
+            else:
+                print("Database tables initialized successfully (already seeded).")
     except Exception as e:
         print(f"Failed to initialize database tables: {e}")
 
