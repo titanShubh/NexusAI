@@ -124,5 +124,20 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for Render/uptime monitoring."""
-    return {"status": "healthy", "service": "nexus-api"}
+    """Health check endpoint for Render/uptime monitoring and vector db keep-alive."""
+    qdrant_status = "unknown"
+    try:
+        from app.services.vector_service import get_qdrant_client
+        qdrant = get_qdrant_client()
+        # Ping Qdrant to reset the inactivity timer and prevent cluster suspension
+        qdrant.get_collections()
+        qdrant_status = "healthy"
+    except Exception as e:
+        qdrant_status = f"unhealthy: {e}"
+        print(f"Healthcheck Qdrant ping failed: {e}")
+
+    return {
+        "status": "healthy",
+        "service": "nexus-api",
+        "qdrant_status": qdrant_status
+    }
