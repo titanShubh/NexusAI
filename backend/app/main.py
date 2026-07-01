@@ -124,7 +124,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for Render/uptime monitoring and vector db keep-alive."""
+    """Health check endpoint for Render/uptime monitoring and database keep-alives."""
     qdrant_status = "unknown"
     try:
         from app.services.vector_service import get_qdrant_client
@@ -136,8 +136,20 @@ async def health_check():
         qdrant_status = f"unhealthy: {e}"
         print(f"Healthcheck Qdrant ping failed: {e}")
 
+    redis_status = "unknown"
+    try:
+        import redis
+        # Ping Redis to prevent database hibernation / archiving due to inactivity
+        r = redis.Redis.from_url(settings.redis_url, socket_timeout=2.0)
+        r.ping()
+        redis_status = "healthy"
+    except Exception as e:
+        redis_status = f"unhealthy: {e}"
+        print(f"Healthcheck Redis ping failed: {e}")
+
     return {
         "status": "healthy",
         "service": "nexus-api",
-        "qdrant_status": qdrant_status
+        "qdrant_status": qdrant_status,
+        "redis_status": redis_status
     }
